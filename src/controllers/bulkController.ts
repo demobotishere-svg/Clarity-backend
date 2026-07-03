@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { db, generateId } from "../lib/db";
 import { bulkBatches, pendingMessages, leads } from "../db/schema";
 import { jwtVerify } from "jose";
-import { inArray } from "drizzle-orm";
+import { inArray, eq, desc } from "drizzle-orm";
 
 const getJwtSecretKey = () => {
   const secret = process.env.JWT_SECRET || "fallback_secret_key_change_me";
@@ -52,5 +52,50 @@ export const queueBulkMessages = async (req: Request, res: Response) => {
   } catch (error) {
     console.error("Bulk Queue Error:", error);
     return res.status(500).send("Internal Server Error");
+  }
+};
+
+export const getBulkReports = async (req: Request, res: Response) => {
+  try {
+    const batches = await db.select()
+      .from(bulkBatches)
+      .orderBy(desc(bulkBatches.createdAt));
+    return res.json(batches);
+  } catch (error) {
+    console.error("Fetch Bulk Reports Error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+export const getBulkReportById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    const batchResult = await db.select().from(bulkBatches).where(eq(bulkBatches.id, id));
+    const batch = batchResult[0];
+
+    if (!batch) {
+      return res.status(404).json({ error: "Batch not found" });
+    }
+
+    const rawMessages = await db.select({
+      id: pendingMessages.id,
+      templateName: pendingMessages.templateName,
+      status: pendingMessages.status,
+      errorReason: pendingMessages.errorReason,
+      createdAt: pendingMessages.createdAt,
+      processedAt: pendingMessages.processedAt,
+      leadName: leads.name,
+      leadPhone: leads.phone,
+    })
+    .from(pendingMessages)
+    .leftJoin(leads, eq(pendingMessages.leadId, leads.id))
+    .where(eq(pendingMessages.batchId, id))
+    .orderBy(desc(pendingMessages.createdAt));
+
+    return res.json({ batch, messages: rawMessages });
+  } catch (error) {
+    console.error("Fetch Bulk Report By Id Error:", error);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 };
