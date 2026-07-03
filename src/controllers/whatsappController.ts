@@ -310,6 +310,20 @@ async function handleIncomingMessage(phone: string, text: string, baseUrl: strin
   }
 
   if (assessment.status === "IN_PROGRESS") {
+    const allUserMessages = await db.query.messages.findMany({
+      where: and(
+        eq(messagesTable.assessmentId, assessment.id),
+        eq(messagesTable.role, "USER")
+      ),
+    });
+
+    if (allUserMessages.length >= 15) {
+      console.warn(`[Webhook] User ${phone} exceeded 15 messages limit. Aborting assessment.`);
+      await db.update(leads).set({ isSubscribed: false }).where(eq(leads.id, lead.id));
+      await sendSystemMessage(phone, assessment.id, "Security protocol triggered: Assessment aborted due to excessive invalid responses. You have been unsubscribed.");
+      return;
+    }
+
     const currentQIdx = assessment.currentQuestion;
     const currentQuestionText = QUESTIONS[currentQIdx - 1];
 
